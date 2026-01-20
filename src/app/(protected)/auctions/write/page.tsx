@@ -1,196 +1,261 @@
 "use client";
 
-import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/client";
+import { useMemo, useState } from "react";
+import { parseFieldErrors, parseRsData } from "@/lib/api";
 
 export default function AuctionWritePage() {
-    const router = useRouter();
+  const router = useRouter();
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    startPrice: "",
+    buyNowPrice: "",
+    categoryId: "",
+    durationHours: "",
+    images: [] as File[],
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string> | null>(
+    null
+  );
 
-    const [form, setForm] = useState({
-        title: "",
-        description: "",
-        startPrice: "",
-        buyNowPrice: "",
-        endAt: "",
-    });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const updateField = (key: keyof typeof form, value: string | File[]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setForm((prev) => ({ ...prev, [name]: value }));
-    };
+  const buyNowWarning = useMemo(() => {
+    const startPrice = Number(form.startPrice);
+    const buyNowPrice = Number(form.buyNowPrice);
+    if (Number.isNaN(startPrice) || Number.isNaN(buyNowPrice)) return null;
+    if (!form.buyNowPrice) return null;
+    return buyNowPrice < startPrice
+      ? "즉시구매가는 시작가보다 낮을 수 있습니다. 서버 검증을 확인하세요."
+      : null;
+  }, [form.buyNowPrice, form.startPrice]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setErrorMessage(null);
-        setFieldErrors({});
+  const validate = () => {
+    const errors: Record<string, string> = {};
+    const name = form.name.trim();
+    const description = form.description.trim();
+    const startPrice = Number(form.startPrice);
+    const buyNowPrice = form.buyNowPrice ? Number(form.buyNowPrice) : null;
+    const categoryId = Number(form.categoryId);
+    const durationHours = Number(form.durationHours);
 
-        // Minimal Frontend Validation
-        const newFieldErrors: Record<string, string> = {};
-        if (!form.title.trim()) newFieldErrors.title = "제목을 입력해주세요.";
-        if (!form.description.trim()) newFieldErrors.description = "설명을 입력해주세요.";
-        if (!form.startPrice || Number(form.startPrice) < 0) newFieldErrors.startPrice = "시작가를 입력해주세요.";
-        if (!form.endAt) newFieldErrors.endAt = "종료 시간을 선택해주세요.";
+    if (!name) errors.name = "상품명은 필수입니다.";
+    if (!description) errors.description = "설명은 필수입니다.";
+    if (Number.isNaN(startPrice) || startPrice < 0) {
+      errors.startPrice = "시작가는 0 이상 숫자여야 합니다.";
+    }
+    if (
+      form.buyNowPrice &&
+      (buyNowPrice === null || Number.isNaN(buyNowPrice) || buyNowPrice < 0)
+    ) {
+      errors.buyNowPrice = "즉시구매가는 0 이상 숫자여야 합니다.";
+    }
+    if (!form.categoryId || Number.isNaN(categoryId)) {
+      errors.categoryId = "카테고리는 필수입니다.";
+    }
+    if (Number.isNaN(durationHours) || durationHours < 1) {
+      errors.durationHours = "기간은 1시간 이상이어야 합니다.";
+    }
+    setFieldErrors(Object.keys(errors).length ? errors : null);
+    return Object.keys(errors).length === 0;
+  };
 
-        // Optional buyNowPrice check: if exists, must be number > 0
-        if (form.buyNowPrice && Number(form.buyNowPrice) <= 0) {
-            newFieldErrors.buyNowPrice = "즉시구매가는 0보다 커야 합니다.";
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!validate()) return;
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    setFieldErrors(null);
+
+    const body = new FormData();
+    body.append("name", form.name.trim());
+    body.append("description", form.description.trim());
+    body.append("startPrice", String(Number(form.startPrice)));
+    if (form.buyNowPrice) {
+      body.append("buyNowPrice", String(Number(form.buyNowPrice)));
+    }
+    body.append("categoryId", String(Number(form.categoryId)));
+    body.append("durationHours", String(Number(form.durationHours)));
+    form.images.forEach((file) => body.append("images", file));
+
+    try {
+      const response = await fetch("/api/auctions", {
+        method: "POST",
+        credentials: "include",
+        body,
+      });
+      const { rsData, errorMessage: apiError } =
+        await parseRsData<{ auctionId: number }>(response);
+      if (!response.ok || !rsData || apiError) {
+        if (rsData?.resultCode === "400-1" && rsData.msg) {
+          setFieldErrors(parseFieldErrors(rsData.msg));
+        } else {
+          setErrorMessage(apiError || rsData?.msg || "등록에 실패했습니다.");
         }
+        return;
+      }
+      router.push(`/auctions/${rsData.data?.auctionId}`);
+    } catch {
+      setErrorMessage("네트워크 오류가 발생했습니다.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
-        if (Object.keys(newFieldErrors).length > 0) {
-            setFieldErrors(newFieldErrors);
-            return;
-        }
-
-        setIsSubmitting(true);
-
-        try {
-            const payload = {
-                title: form.title,
-                description: form.description,
-                startPrice: Number(form.startPrice),
-                buyNowPrice: form.buyNowPrice ? Number(form.buyNowPrice) : undefined,
-                endAt: new Date(form.endAt).toISOString(), // Ensure ISO format
-            };
-
-            const { data } = await api.post<{ id: number }>("/api/auctions", payload);
-
-            // Success -> Redirect
-            router.replace(`/auctions/${data.id}`);
-        } catch (e: any) {
-            if (e instanceof ApiError && e.resultCode === "400-1") {
-                const lines = e.msgLines;
-                const errors: Record<string, string> = {};
-                let otherMsg = "";
-
-                lines.forEach(line => {
-                    const parts = line.split("-");
-                    if (parts.length >= 3) {
-                        const field = parts[0];
-                        const msg = parts.slice(2).join("-");
-                        errors[field] = msg;
-                    } else {
-                        otherMsg += line + "\n";
-                    }
-                });
-
-                if (Object.keys(errors).length > 0) {
-                    setFieldErrors(errors);
+  return (
+    <div className="page">
+      <div className="card">
+        <h1 style={{ marginTop: 0 }}>경매 등록</h1>
+        <form onSubmit={handleSubmit} style={{ marginTop: 16 }}>
+          <div className="field">
+            <label className="label" htmlFor="name">
+              상품명
+            </label>
+            <input
+              id="name"
+              className="input"
+              value={form.name}
+              onChange={(event) => updateField("name", event.target.value)}
+              placeholder="경매 상품명"
+            />
+            {fieldErrors?.name ? (
+              <span className="error">{fieldErrors.name}</span>
+            ) : null}
+          </div>
+          <div className="field" style={{ marginTop: 16 }}>
+            <label className="label" htmlFor="description">
+              설명
+            </label>
+            <textarea
+              id="description"
+              className="textarea"
+              rows={6}
+              value={form.description}
+              onChange={(event) =>
+                updateField("description", event.target.value)
+              }
+            />
+            {fieldErrors?.description ? (
+              <span className="error">{fieldErrors.description}</span>
+            ) : null}
+          </div>
+          <div className="field-row" style={{ marginTop: 16 }}>
+            <div className="field">
+              <label className="label" htmlFor="startPrice">
+                시작가
+              </label>
+              <input
+                id="startPrice"
+                className="input"
+                value={form.startPrice}
+                onChange={(event) =>
+                  updateField("startPrice", event.target.value)
                 }
-                if (otherMsg) {
-                    setErrorMessage(otherMsg.trim());
+                placeholder="0 이상"
+              />
+              {fieldErrors?.startPrice ? (
+                <span className="error">{fieldErrors.startPrice}</span>
+              ) : null}
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="buyNowPrice">
+                즉시구매가(선택)
+              </label>
+              <input
+                id="buyNowPrice"
+                className="input"
+                value={form.buyNowPrice}
+                onChange={(event) =>
+                  updateField("buyNowPrice", event.target.value)
                 }
-            } else {
-                setErrorMessage(e.message || "경매 등록 중 오류가 발생했습니다.");
-            }
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <div className="max-w-2xl mx-auto px-6 py-8">
-            <h1 className="text-2xl font-bold mb-8">경매 등록하기</h1>
-
-            <form onSubmit={handleSubmit} className="space-y-6">
-                {errorMessage && (
-                    <div className="bg-red-50 p-4 rounded-lg text-red-600 mb-6 text-center whitespace-pre-wrap">
-                        {errorMessage}
-                    </div>
-                )}
-
-                {/* Title */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">경매 제목</label>
-                    <input
-                        type="text"
-                        name="title"
-                        value={form.title}
-                        onChange={handleChange}
-                        placeholder="제목을 입력해주세요"
-                        className="block w-full rounded-md border-0 py-1.5 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3"
-                    />
-                    {fieldErrors.title && <p className="mt-1 text-sm text-red-600">{fieldErrors.title}</p>}
-                </div>
-
-                {/* Description */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">설명</label>
-                    <textarea
-                        name="description"
-                        value={form.description}
-                        onChange={handleChange}
-                        rows={10}
-                        placeholder="물품에 대한 상세한 설명을 적어주세요."
-                        className="block w-full rounded-md border-0 py-1.5 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3"
-                    />
-                    {fieldErrors.description && <p className="mt-1 text-sm text-red-600">{fieldErrors.description}</p>}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Start Price */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">시작가</label>
-                        <input
-                            type="number"
-                            name="startPrice"
-                            value={form.startPrice}
-                            onChange={handleChange}
-                            placeholder="0"
-                            className="block w-full rounded-md border-0 py-1.5 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3"
-                        />
-                        {fieldErrors.startPrice && <p className="mt-1 text-sm text-red-600">{fieldErrors.startPrice}</p>}
-                    </div>
-
-                    {/* Buy Now Price (Optional) */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">즉시구매가 (선택)</label>
-                        <input
-                            type="number"
-                            name="buyNowPrice"
-                            value={form.buyNowPrice}
-                            onChange={handleChange}
-                            placeholder="미입력 시 경매로만 진행"
-                            className="block w-full rounded-md border-0 py-1.5 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3"
-                        />
-                        {fieldErrors.buyNowPrice && <p className="mt-1 text-sm text-red-600">{fieldErrors.buyNowPrice}</p>}
-                    </div>
-                </div>
-
-                {/* End Time */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">경매 종료 시간</label>
-                    <input
-                        type="datetime-local"
-                        name="endAt"
-                        value={form.endAt}
-                        onChange={handleChange}
-                        className="block w-full rounded-md border-0 py-1.5 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3"
-                    />
-                    {fieldErrors.endAt && <p className="mt-1 text-sm text-red-600">{fieldErrors.endAt}</p>}
-                </div>
-
-                {/* Actions */}
-                <div className="flex justify-end gap-3 pt-4">
-                    <button
-                        type="button"
-                        onClick={() => router.back()}
-                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                    >
-                        취소
-                    </button>
-                    <button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400"
-                    >
-                        {isSubmitting ? "경매 생성 중..." : "경매 생성"}
-                    </button>
-                </div>
-            </form>
-        </div>
-    );
+                placeholder="0 이상"
+              />
+              {fieldErrors?.buyNowPrice ? (
+                <span className="error">{fieldErrors.buyNowPrice}</span>
+              ) : null}
+              {buyNowWarning ? (
+                <span className="muted">{buyNowWarning}</span>
+              ) : null}
+            </div>
+          </div>
+          <div className="field-row" style={{ marginTop: 16 }}>
+            <div className="field">
+              <label className="label" htmlFor="categoryId">
+                카테고리 ID
+              </label>
+              <input
+                id="categoryId"
+                className="input"
+                value={form.categoryId}
+                onChange={(event) =>
+                  updateField("categoryId", event.target.value)
+                }
+                placeholder="예: 2"
+              />
+              {fieldErrors?.categoryId ? (
+                <span className="error">{fieldErrors.categoryId}</span>
+              ) : null}
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="durationHours">
+                진행 시간(시간)
+              </label>
+              <input
+                id="durationHours"
+                className="input"
+                value={form.durationHours}
+                onChange={(event) =>
+                  updateField("durationHours", event.target.value)
+                }
+                placeholder="예: 24"
+              />
+              {fieldErrors?.durationHours ? (
+                <span className="error">{fieldErrors.durationHours}</span>
+              ) : null}
+            </div>
+          </div>
+          <div className="field" style={{ marginTop: 16 }}>
+            <label className="label" htmlFor="images">
+              이미지(선택)
+            </label>
+            <input
+              id="images"
+              className="input"
+              type="file"
+              multiple
+              onChange={(event) =>
+                updateField("images", Array.from(event.target.files ?? []))
+              }
+            />
+          </div>
+          {errorMessage ? (
+            <div className="error" style={{ marginTop: 12 }}>
+              {errorMessage}
+            </div>
+          ) : null}
+          <div className="actions" style={{ marginTop: 20 }}>
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "등록 중..." : "등록"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => router.push("/auctions")}
+            >
+              취소
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }

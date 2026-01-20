@@ -1,122 +1,191 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/client";
-import { PostCard } from "@/components/posts/PostCard";
-import { FilterBar } from "@/components/posts/FilterBar";
-import { useAuth } from "@/contexts/AuthProvider";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/components/auth/AuthContext";
+import { parseRsData } from "@/lib/api";
 
-// P-004 4.1 State Model
-interface Post {
-    id: number;
-    title: string;
-    price: number;
-    status: string;
-    thumbnailUrl?: string;
-    createdAt: string;
-}
+type PostItem = {
+  id: number;
+  title: string;
+  price: number;
+  categoryName: string;
+  thumbnailUrl?: string;
+  createDate: string;
+};
+
+type PostPageData = {
+  content?: PostItem[];
+  totalPages?: number;
+  totalElements?: number;
+};
 
 export default function PostsPage() {
-    const router = useRouter();
-    const { authStatus } = useAuth();
+  const router = useRouter();
+  const auth = useAuth();
+  const [keywordInput, setKeywordInput] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [sort, setSort] = useState("LATEST");
+  const [page, setPage] = useState(0);
+  const [posts, setPosts] = useState<PostItem[]>([]);
+  const [totalPages, setTotalPages] = useState<number | null>(null);
+  const [totalElements, setTotalElements] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    const [posts, setPosts] = useState<Post[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-    // Initial filter state
-    const [filter, setFilter] = useState({
-        categoryId: null as number | null,
-        keyword: "",
-        sort: "LATEST",
-    });
-
-    const fetchPosts = useCallback(async (currentFilter: typeof filter) => {
-        setIsLoading(true);
-        setErrorMessage(null);
-        try {
-            // Build query params
-            const params: any = {
-                sort: currentFilter.sort,
-                size: 20, // Default size
-            };
-            if (currentFilter.categoryId) params.categoryId = currentFilter.categoryId;
-            if (currentFilter.keyword) params.keyword = currentFilter.keyword;
-
-            // Need to stringify for URLSearchParams or api client handles it?
-            // Our api client in `client.ts` takes generic fetch options but doesn't auto-build QS from object body for GET.
-            // We need to append query string to url.
-            const queryString = new URLSearchParams(
-                Object.entries(params).map(([k, v]) => [k, String(v)])
-            ).toString();
-
-            const { data } = await api.get<Post[]>(`/api/posts?${queryString}`);
-
-            const list = Array.isArray(data) ? data : (data as any).content || [];
-            setPosts(list);
-        } catch (e: any) {
-            setErrorMessage(e.message || "목록을 불러오는데 실패했습니다.");
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
-    // Initial fetch
-    useEffect(() => {
-        fetchPosts(filter);
-    }, []); // Run once on mount, subsequent runs triggered by handleSearch updates calling fetchPosts directly or effect dependency?
-    // P-004 5.3: Re-trigger on change. 
-    // Better approach: Effect depends on filter.
-
-    useEffect(() => {
-        fetchPosts(filter);
-    }, [filter, fetchPosts]);
-
-    const handleSearch = (newParams: { categoryId: number | null; keyword: string; sort: string }) => {
-        setFilter(newParams);
-    };
-
-    const handleWriteClick = () => {
-        if (authStatus !== "authed") {
-            router.push("/login");
-        } else {
-            router.push("/posts/write");
-        }
-    };
-
-    return (
-        <div className="container mx-auto px-6 py-8">
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold font-gray-900">중고거래 매물</h1>
-                <button
-                    onClick={handleWriteClick}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 font-medium transition-colors"
-                >
-                    글 작성하기
-                </button>
-            </div>
-
-            <FilterBar onSearch={handleSearch} />
-
-            {isLoading ? (
-                <div className="py-20 text-center text-gray-500">로딩 중...</div>
-            ) : errorMessage ? (
-                <div className="py-20 text-center text-red-500 bg-red-50 rounded-lg">
-                    {errorMessage}
-                </div>
-            ) : posts.length === 0 ? (
-                <div className="py-20 text-center text-gray-500 bg-gray-50 rounded-lg">
-                    등록된 게시글이 없습니다.
-                </div>
-            ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                    {posts.map((post) => (
-                        <PostCard key={post.id} post={post} />
-                    ))}
-                </div>
-            )}
-        </div>
+  const filteredPosts = useMemo(() => {
+    if (!keyword.trim()) return posts;
+    return posts.filter((post) =>
+      post.title.toLowerCase().includes(keyword.toLowerCase())
     );
+  }, [keyword, posts]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPosts = async () => {
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const response = await fetch(`/api/v1/posts?page=${page}`, {
+          credentials: "include",
+        });
+        const { rsData, errorMessage: apiError } =
+          await parseRsData<PostPageData>(response);
+        if (!isMounted) return;
+        if (!response.ok || apiError || !rsData) {
+          setPosts([]);
+          setErrorMessage(apiError || "목록을 불러오지 못했습니다.");
+          return;
+        }
+        setPosts(rsData.data?.content ?? []);
+        setTotalPages(rsData.data?.totalPages ?? null);
+        setTotalElements(rsData.data?.totalElements ?? null);
+      } catch {
+        if (isMounted) {
+          setPosts([]);
+          setErrorMessage("네트워크 오류가 발생했습니다.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+    fetchPosts();
+    return () => {
+      isMounted = false;
+    };
+  }, [page]);
+
+  const applySearch = () => {
+    setKeyword(keywordInput.trim());
+    setPage(0);
+  };
+
+  const handleWrite = () => {
+    if (auth?.me) {
+      router.push("/posts/write");
+      return;
+    }
+    router.push("/login");
+  };
+
+  return (
+    <div className="page">
+      <section className="panel">
+        <h1 style={{ marginTop: 0 }}>중고거래 목록</h1>
+        <div className="field-row" style={{ marginTop: 16 }}>
+          <div className="field">
+            <label className="label" htmlFor="keyword">
+              검색어
+            </label>
+            <input
+              id="keyword"
+              className="input"
+              value={keywordInput}
+              onChange={(event) => setKeywordInput(event.target.value)}
+              placeholder="제목으로 검색"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") applySearch();
+              }}
+            />
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="sort">
+              정렬
+            </label>
+            <select
+              id="sort"
+              className="select"
+              value={sort}
+              onChange={(event) => setSort(event.target.value)}
+              disabled
+            >
+              <option value="LATEST">최신순</option>
+            </select>
+            <span className="muted">정렬 옵션은 MVP에서 고정됩니다.</span>
+          </div>
+        </div>
+        <div className="actions" style={{ marginTop: 16 }}>
+          <button className="btn btn-primary" onClick={applySearch}>
+            검색 적용
+          </button>
+          <button className="btn btn-ghost" onClick={handleWrite}>
+            글 작성
+          </button>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        {isLoading ? (
+          <div className="card">
+            <div className="skeleton" style={{ width: "70%" }} />
+            <div className="skeleton" style={{ width: "90%", marginTop: 12 }} />
+          </div>
+        ) : errorMessage ? (
+          <div className="error">{errorMessage}</div>
+        ) : filteredPosts.length === 0 ? (
+          <div className="empty">검색 결과가 없습니다.</div>
+        ) : (
+          <div className="grid-3">
+            {filteredPosts.map((post) => (
+              <Link key={post.id} className="card" href={`/posts/${post.id}`}>
+                <div className="tag">{post.categoryName}</div>
+                <h3 style={{ margin: "12px 0 6px" }}>{post.title}</h3>
+                <div className="muted">
+                  {post.price.toLocaleString()}원 · {post.createDate}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+        {totalPages !== null ? (
+          <div className="actions" style={{ marginTop: 16 }}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setPage((prev) => Math.max(prev - 1, 0))}
+              disabled={page <= 0}
+            >
+              이전
+            </button>
+            <span className="muted">
+              {page + 1} / {totalPages} (총 {totalElements ?? 0}건)
+            </span>
+            <button
+              className="btn btn-ghost"
+              onClick={() =>
+                setPage((prev) =>
+                  totalPages ? Math.min(prev + 1, totalPages - 1) : prev + 1
+                )
+              }
+              disabled={totalPages !== null && page >= totalPages - 1}
+            >
+              다음
+            </button>
+          </div>
+        ) : null}
+      </section>
+    </div>
+  );
 }
