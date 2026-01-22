@@ -1,0 +1,114 @@
+AuctionStatus에서
+COMPLETED인 경우 입찰이 있고, 경매 시간이 끝난 경우이다. 낙찰이 완료돼 입찰자가 있는 상태.
+CLOSED인 경우 입찰이 없는데 경매 시간이 끝난 경우이다. 입찰자가 없다.
+CANCELLED인 경우는 경매가 취소된 상태이다.
+
+취소 버튼은 
+COMPLETED인 경우 판매자가 취소(거래 완료) 버튼을 누를 수 있게 하고 싶어.
+OPEN인 경우는 입찰자가 없는 상태(currentHighestBid가 없는 상태)에만 판매자가 취소 버튼을 누를 수 있게 하고 싶어.
+다른 경우의 취소는 일단은 비활성화 되는게 좋겠어.
+
+낙찰 정보로 보여줄 항목은 닉네임, 낙찰가, 낙찰 시간 필드 정도면 적당할 것 같고, posts/[id] 에서 처럼 채팅 시작 버튼이 생기면 좋겠어.
+
+# API deatil 조회 응답
+"AuctionDetailResponse": {
+"type": "object",
+"properties": {
+"auctionId": {
+"type": "integer",
+"format": "int32"
+},
+"name": {
+"type": "string"
+},
+"description": {
+"type": "string"
+},
+"startPrice": {
+"type": "integer",
+"format": "int32"
+},
+"currentHighestBid": {
+"type": "integer",
+"format": "int32"
+},
+"buyNowPrice": {
+"type": "integer",
+"format": "int32"
+},
+"bidCount": {
+"type": "integer",
+"format": "int32"
+},
+"status": {
+"type": "string",
+"enum": [
+"OPEN",
+"CLOSED",
+"COMPLETED",
+"CANCELLED"
+]
+},
+"startAt": {
+"type": "string",
+"format": "date-time"
+},
+"endAt": {
+"type": "string",
+"format": "date-time"
+},
+"imageUrls": {
+"type": "array",
+"items": {
+"type": "string"
+}
+},
+"seller": {
+"$ref": "#/components/schemas/SellerDto"
+},
+"categoryName": {
+"type": "string"
+},
+"winnerId": {
+"type": "integer",
+"format": "int32"
+},
+"winningBidId": {
+"type": "integer",
+"format": "int32"
+},
+"closedAt": {
+"type": "string",
+"format": "date-time"
+},
+"cancelledBy": {
+"type": "integer",
+"format": "int32"
+},
+"cancellerRole": {
+"type": "string",
+"enum": [
+"SELLER",
+"BUYER"
+]
+},
+"cancellerRoleDescription": {
+"type": "string"
+}
+}
+},
+"RsDataAuctionDetailResponse": {
+"type": "object",
+"properties": {
+"resultCode": {
+"type": "string"
+},
+"msg": {
+"type": "string"
+},
+"data": {
+"$ref": "#/components/schemas/AuctionDetailResponse"
+}
+}
+},
+

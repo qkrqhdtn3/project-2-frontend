@@ -126,6 +126,8 @@ export default function AuctionsPage() {
             >
               <option value="OPEN">OPEN</option>
               <option value="CLOSED">CLOSED</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="CANCELLED">CANCELLED</option>
             </select>
           </div>
           <div className="field">

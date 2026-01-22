@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { buildApiUrl, parseRsData } from "@/lib/api";
+import {
+  buildApiUrl,
+  isSuccessResultCode,
+  parseRsData,
+  safeJson,
+} from "@/lib/api";
 import { useAuth } from "@/components/auth/AuthContext";
 
 type AuctionDetail = {
@@ -24,6 +29,12 @@ type AuctionDetail = {
     reputationScore: number;
   };
   categoryName?: string;
+  winnerId?: number | null;
+  winningBidId?: number | null;
+  closedAt?: string | null;
+  cancelledBy?: number | null;
+  cancellerRole?: "SELLER" | "BUYER" | null;
+  cancellerRoleDescription?: string | null;
 };
 
 type BidItem = {
@@ -71,17 +82,25 @@ export default function AuctionDetailPage() {
   const [isBidsLoading, setIsBidsLoading] = useState(false);
   const [bidsError, setBidsError] = useState<string | null>(null);
   const bidPageSize = 10;
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isReporting, setIsReporting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportSuccess, setReportSuccess] = useState<string | null>(null);
+  const [isCanceling, setIsCanceling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
   const auctionId = useMemo(() => {
     const raw = params?.id;
     const value = Array.isArray(raw) ? raw[0] : raw;
     return value ? Number(value) : null;
   }, [params]);
+  const winningBid = useMemo(() => {
+    const winningBidId = auction?.winningBidId;
+    if (!winningBidId) return null;
+    return bids.find((bid) => bid.bidId === winningBidId) || null;
+  }, [auction?.winningBidId, bids]);
 
   const loadAuctionDetail = useCallback(async () => {
     if (!auctionId) {
@@ -209,30 +228,6 @@ export default function AuctionDetailPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!auctionId || isDeleting) return;
-    if (!confirm("정말 삭제하시겠습니까?")) return;
-    setIsDeleting(true);
-    setDeleteError(null);
-    try {
-      const response = await fetch(buildApiUrl(`/api/auctions/${auctionId}`), {
-        method: "DELETE",
-        credentials: "include",
-      });
-      const { rsData, errorMessage: apiError } =
-        await parseRsData<{ message?: string }>(response);
-      if (!response.ok || apiError || !rsData) {
-        setDeleteError(apiError || "삭제에 실패했습니다.");
-        return;
-      }
-      router.push("/auctions");
-    } catch {
-      setDeleteError("네트워크 오류가 발생했습니다.");
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
   const handleReportSeller = async () => {
     if (!auction || isReporting) return;
     if (!confirm("판매자를 신고하시겠습니까?")) return;
@@ -258,6 +253,117 @@ export default function AuctionDetailPage() {
       setReportError("네트워크 오류가 발생했습니다.");
     } finally {
       setIsReporting(false);
+    }
+  };
+
+  const handleCancelTrade = async () => {
+    if (!auctionId || isCanceling) return;
+    if (!confirm("정말 취소하시겠습니까?")) return;
+    setIsCanceling(true);
+    setCancelError(null);
+    setCancelSuccess(null);
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/auctions/${auctionId}/cancel`),
+        {
+          method: "POST",
+          credentials: "include",
+        }
+      );
+      const { rsData, errorMessage: apiError } =
+        await parseRsData<null>(response);
+      if (!response.ok || apiError || !rsData) {
+      setCancelError(apiError || "취소에 실패했습니다.");
+      return;
+    }
+      setCancelSuccess(rsData.msg || "취소되었습니다.");
+      await loadAuctionDetail();
+    } catch {
+      setCancelError("네트워크 오류가 발생했습니다.");
+    } finally {
+      setIsCanceling(false);
+    }
+  };
+
+  const handleChat = async () => {
+    if (!auth?.me) {
+      router.push("/login");
+      return;
+    }
+    if (!auctionId || !auction) return;
+    if (isCreatingChat) return;
+    setIsCreatingChat(true);
+    setChatError(null);
+    const storedApiKey =
+      typeof window !== "undefined"
+        ? localStorage.getItem("buyerApiKey")
+        : null;
+    const buyerApiKey = isSeller
+      ? auction.winnerId
+        ? `${auction.winnerId}`
+        : null
+      : storedApiKey ||
+        auth.me.apiKey ||
+        auth.me.username ||
+        auth.me.name ||
+        `${auth.me.id}`;
+    if (!buyerApiKey) {
+      setChatError("낙찰자 정보가 없어 채팅을 시작할 수 없습니다.");
+      setIsCreatingChat(false);
+      return;
+    }
+    const query = new URLSearchParams({
+      itemId: `${auctionId}`,
+      txType: "AUCTION",
+      buyerApiKey,
+    });
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/chat/room?${query.toString()}`),
+        {
+          method: "POST",
+          credentials: "include",
+        }
+      );
+      const json = await safeJson<{
+        resultCode?: string;
+        msg?: string;
+        data?: { roomId?: string };
+        roomId?: string;
+      }>(response);
+      let roomId = "";
+      if (json) {
+        if (json.resultCode) {
+          const isSuccess =
+            response.ok && isSuccessResultCode(json.resultCode);
+          if (!isSuccess) {
+            setChatError(json.msg || "채팅방 생성에 실패했습니다.");
+            return;
+          }
+        } else if (!response.ok) {
+          setChatError(json.msg || "채팅방 생성에 실패했습니다.");
+          return;
+        }
+        roomId = json.data?.roomId || json.roomId || "";
+      } else {
+        const text = await response.text();
+        if (!response.ok) {
+          setChatError(text || "채팅방 생성에 실패했습니다.");
+          return;
+        }
+        roomId = text.trim();
+      }
+      if (!roomId) {
+        setChatError("채팅방 정보를 받지 못했습니다.");
+        return;
+      }
+      router.push(
+        `/chat?roomId=${encodeURIComponent(roomId)}&itemId=${auctionId}`
+      );
+    } catch {
+      setChatError("네트워크 오류가 발생했습니다.");
+    } finally {
+      setIsCreatingChat(false);
     }
   };
 
@@ -288,7 +394,9 @@ export default function AuctionDetailPage() {
   }
 
   const isSeller = auth?.me?.id === auction.seller.id;
+  const isWinner = auth?.me?.id === auction.winnerId;
   const isAuctionOpen = auction.status === "OPEN";
+  const isAuctionCompleted = auction.status === "COMPLETED";
   const isEditable =
     isSeller &&
     (auction.bidCount === 0 ||
@@ -299,6 +407,16 @@ export default function AuctionDetailPage() {
     (auction.bidCount === 0 ||
       auction.currentHighestBid === null ||
       auction.currentHighestBid === undefined);
+  const canCancelTrade = isAuctionCompleted && (isSeller || isWinner);
+  const shouldShowCancelTrade = isAuctionCompleted;
+  const winnerNickname =
+    winningBid?.bidderNickname ||
+    (auction.winnerId ? `회원 #${auction.winnerId}` : "-");
+  const winningPrice =
+    winningBid?.price ?? auction.currentHighestBid ?? null;
+  const winningAt = winningBid?.createdAt ?? auction.closedAt ?? null;
+  const canStartChat =
+    isAuctionCompleted && (isWinner || isSeller) && !!auction.winnerId;
 
   return (
     <div className="page">
@@ -339,6 +457,43 @@ export default function AuctionDetailPage() {
             입찰 {auction.bidCount}회 · 시작 {auction.startAt} · 종료{" "}
             {auction.endAt}
           </div>
+          {auction.status === "COMPLETED" ? (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <h3 style={{ marginTop: 0 }}>낙찰 정보</h3>
+              <div className="muted">낙찰자 {winnerNickname}</div>
+              <div>낙찰가 {formatNumber(winningPrice)}원</div>
+              <div className="muted">낙찰 시간 {winningAt || "-"}</div>
+              {canStartChat ? (
+                <div className="actions" style={{ marginTop: 12 }}>
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    onClick={handleChat}
+                    disabled={isCreatingChat}
+                  >
+                    {isCreatingChat ? "채팅방 생성 중..." : "채팅 시작"}
+                  </button>
+                </div>
+              ) : null}
+              {chatError ? (
+                <div className="error" style={{ marginTop: 8 }}>
+                  {chatError}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {auction.status === "CANCELLED" ? (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <h3 style={{ marginTop: 0 }}>취소 정보</h3>
+              <div className="muted">
+                취소자{" "}
+                {auction.cancellerRoleDescription ||
+                  auction.cancellerRole ||
+                  "-"}
+              </div>
+              <div className="muted">취소 시간 {auction.closedAt || "-"}</div>
+            </div>
+          ) : null}
           {!isSeller ? (
             <div className="panel" style={{ marginTop: 16 }}>
               <div className="field">
@@ -393,28 +548,59 @@ export default function AuctionDetailPage() {
                 >
                   수정
                 </button>
-                <button
-                  className="btn btn-danger"
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={isDeleting || !canDelete}
-                >
-                  {isDeleting ? "삭제 중..." : "삭제"}
-                </button>
+                {isAuctionOpen ? (
+                  <button
+                    className="btn btn-danger"
+                    type="button"
+                    onClick={handleCancelTrade}
+                    disabled={isCanceling || !canDelete}
+                  >
+                    {isCanceling ? "취소 중..." : "경매 취소"}
+                  </button>
+                ) : null}
               </div>
-              {deleteError ? (
+              {cancelError ? (
                 <div className="error" style={{ marginTop: 8 }}>
-                  {deleteError}
+                  {cancelError}
                 </div>
               ) : null}
-              {!canDelete ? (
+              {!canDelete && isAuctionOpen ? (
                 <div className="muted" style={{ marginTop: 8 }}>
-                  입찰이 있으면 삭제할 수 없습니다.
+                  입찰이 있으면 취소할 수 없습니다.
                 </div>
               ) : null}
               {!isEditable ? (
                 <div className="muted" style={{ marginTop: 8 }}>
                   입찰이 없을 때만 수정할 수 있습니다.
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {shouldShowCancelTrade ? (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="actions">
+                <button
+                  className="btn btn-danger"
+                  type="button"
+                  onClick={handleCancelTrade}
+                  disabled={isCanceling || !canCancelTrade}
+                >
+                  {isCanceling ? "취소 처리 중..." : "거래 취소"}
+                </button>
+              </div>
+              {cancelError ? (
+                <div className="error" style={{ marginTop: 8 }}>
+                  {cancelError}
+                </div>
+              ) : null}
+              {cancelSuccess ? (
+                <div className="success" style={{ marginTop: 8 }}>
+                  {cancelSuccess}
+                </div>
+              ) : null}
+              {!canCancelTrade ? (
+                <div className="muted" style={{ marginTop: 8 }}>
+                  거래 취소 권한이 없습니다.
                 </div>
               ) : null}
             </div>
@@ -510,7 +696,11 @@ export default function AuctionDetailPage() {
           <div className="panel" style={{ marginTop: 16 }}>
             {auction.status === "OPEN"
               ? "진행 중인 경매입니다. 새로고침으로 최신 상태를 확인하세요."
-              : "종료된 경매입니다."}
+              : auction.status === "CLOSED"
+                ? "입찰 없이 종료된 경매입니다."
+                : auction.status === "COMPLETED"
+                  ? "낙찰이 완료된 경매입니다."
+                  : "취소된 경매입니다."}
           </div>
         </div>
       </section>

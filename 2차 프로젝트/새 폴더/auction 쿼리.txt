@@ -1,0 +1,63 @@
+UPDATE auctions
+SET end_at = CURRENT_TIMESTAMP
+WHERE id = 35;
+
+INSERT INTO auctions (
+    create_date,
+    modify_date,
+    bid_count,
+    buy_now_price,
+    cancelled_by,
+    canceller_role,
+    closed_at,
+    completed,
+    current_highest_bid,
+    description,
+    end_at,
+    name,
+    start_at,
+    start_price,
+    status,
+    winner_id,
+    winning_bid_id,
+    category_id,
+    seller_id
+)
+VALUES (
+    TIMESTAMP '2026-01-22 16:34:42.224554',
+    TIMESTAMP '2026-01-22 16:37:00.047621',
+    1,
+    44444444,
+    NULL,
+    NULL,
+    TIMESTAMP '2026-01-22 16:37:00.035091',
+    TRUE,
+    34,
+    '2',
+    TIMESTAMP '2026-01-22 16:36:50.461837',
+    '1',
+    TIMESTAMP '2026-01-22 16:34:42.223632',
+    33,
+    'COMPLETED',
+    33,
+    33,
+    1,
+    7
+);
+
+
+INSERT INTO auctions (
+    create_date, modify_date, bid_count, buy_now_price,
+    cancelled_by, canceller_role, closed_at, completed,
+    current_highest_bid, description, end_at, name,
+    start_at, start_price, status, winner_id,
+    winning_bid_id, category_id, seller_id
+)
+SELECT
+    create_date, modify_date, bid_count, buy_now_price,
+    cancelled_by, canceller_role, closed_at, completed,
+    current_highest_bid, description, end_at, name,
+    start_at, start_price, status, winner_id,
+    winning_bid_id, category_id, seller_id
+FROM auction
+WHERE id = 36;
