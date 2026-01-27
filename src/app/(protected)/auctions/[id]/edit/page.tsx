@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -90,10 +90,10 @@ export default function AuctionEditPage() {
       setErrorMessage(null);
       try {
         const { rsData, errorMessage: apiError, response } =
-          await apiRequest<AuctionDetail>(`/api/auctions/${auctionId}`);
+          await apiRequest<AuctionDetail>(`/api/v1/auctions/${auctionId}`);
         if (!isMounted) return;
         if (!response.ok || apiError || !rsData) {
-          setErrorMessage(apiError || "상세 정보를 불러오지 못했습니다.");
+          setErrorMessage("잘못된 접근입니다.");
           return;
         }
         const data = rsData.data;
@@ -104,16 +104,16 @@ export default function AuctionEditPage() {
         const sellerOk = auth?.me?.id === data.seller.id;
         setIsEditable(editable && sellerOk);
         if (!sellerOk) {
-          setErrorMessage("수정 권한이 없습니다.");
+          setErrorMessage("잘못된 접근입니다.");
           return;
         }
         if (!editable) {
-          setErrorMessage("입찰이 없는 경우에만 수정할 수 있습니다.");
+          setErrorMessage("잘못된 접근입니다.");
           return;
         }
         setForm({
-          name: data.name ?? "",
-          description: data.description ?? "",
+          name: data.name  "",
+          description: data.description  "",
           startPrice:
             typeof data.startPrice === "number" ? String(data.startPrice) : "",
           buyNowPrice:
@@ -121,12 +121,12 @@ export default function AuctionEditPage() {
           endAt: toInputDateTime(data.endAt),
           images: [],
         });
-        const urls = data.imageUrls ?? [];
+        const urls = data.imageUrls  [];
         setExistingImageUrls(urls);
         setKeepImageUrls(urls);
       } catch {
         if (isMounted) {
-          setErrorMessage("네트워크 오류가 발생했습니다.");
+          setErrorMessage("잘못된 접근입니다.");
         }
       } finally {
         if (isMounted) {
@@ -166,7 +166,7 @@ export default function AuctionEditPage() {
     event.preventDefault();
     if (!auctionId || !isEditable || !validate()) return;
     setIsSubmitting(true);
-    setErrorMessage(null);
+    setErrorMessage("잘못된 접근입니다.");
     setFieldErrors(null);
 
     const body = new FormData();
@@ -184,7 +184,7 @@ export default function AuctionEditPage() {
 
     try {
       const { rsData, errorMessage: apiError, response } =
-        await apiRequest<{ auctionId: number }>(`/api/auctions/${auctionId}`, {
+        await apiRequest<{ auctionId: number }>(`/api/v1/auctions/${auctionId}`, {
           method: "PATCH",
           body,
         });
@@ -192,13 +192,13 @@ export default function AuctionEditPage() {
         if (rsData?.resultCode === "400-1" && rsData.msg) {
           setFieldErrors(parseFieldErrors(rsData.msg));
         } else {
-          setErrorMessage(apiError || rsData?.msg || "수정에 실패했습니다.");
+          setErrorMessage("잘못된 접근입니다.");
         }
         return;
       }
       router.push(`/auctions/${auctionId}`);
     } catch {
-      setErrorMessage("네트워크 오류가 발생했습니다.");
+      setErrorMessage("잘못된 접근입니다.");
     } finally {
       setIsSubmitting(false);
     }
@@ -307,7 +307,7 @@ export default function AuctionEditPage() {
           </div>
           <div className="field" style={{ marginTop: 16 }}>
             <label className="label" htmlFor="endAt">
-              종료 시각(선택)
+              종료 시간(선택)
             </label>
             <input
               id="endAt"
@@ -349,7 +349,7 @@ export default function AuctionEditPage() {
           </div>
           <div className="field" style={{ marginTop: 16 }}>
             <label className="label" htmlFor="images">
-              새 이미지(선택)
+              추가 이미지(선택)
             </label>
             <input
               id="images"
@@ -385,3 +385,20 @@ export default function AuctionEditPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

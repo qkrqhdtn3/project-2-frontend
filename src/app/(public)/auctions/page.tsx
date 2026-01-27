@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -72,20 +72,20 @@ export default function AuctionsPage() {
       setErrorMessage(null);
       try {
         const { rsData, errorMessage: apiError, response } =
-          await apiRequest<AuctionPageData>(`/api/auctions?${buildQuery()}`);
+          await apiRequest<AuctionPageData>(`/api/v1/auctions?${buildQuery()}`);
         if (!isMounted) return;
         if (!response.ok || apiError || !rsData) {
           setAuctions([]);
           setPageData(null);
-          setErrorMessage(apiError || "목록을 불러오지 못했습니다.");
+          setErrorMessage(apiError || "목록을 불러오지 못했습니다.
           return;
         }
-        setAuctions(rsData.data?.content ?? []);
+        setAuctions(rsData.data?.content || []);
         setPageData({
-          page: rsData.data?.page ?? page,
-          size: rsData.data?.size ?? size,
-          totalElements: rsData.data?.totalElements ?? 0,
-          totalPages: rsData.data?.totalPages ?? 0,
+          page: rsData.data?.page || page,
+          size: rsData.data?.size || size,
+          totalElements: rsData.data?.totalElements || 0,
+          totalPages: rsData.data?.totalPages || 0,
         });
       } catch {
         if (isMounted) {
@@ -143,7 +143,7 @@ export default function AuctionsPage() {
               className="input"
               value={category}
               onChange={(event) => setCategory(event.target.value)}
-              placeholder="카테고리 문자열"
+              placeholder="카테고리 입력"
             />
           </div>
           <div className="field">
@@ -208,7 +208,7 @@ export default function AuctionsPage() {
                   현재가 {formatNumber(auction.currentHighestBid)}원
                 </div>
                 <div className="muted">
-                  종료 {auction.endAt} · 입찰 {auction.bidCount}회
+                  종료 {auction.endAt} · 입찰 {auction.bidCount}건
                 </div>
                 {auction.categoryName ? (
                   <div className="tag" style={{ marginTop: 8 }}>
@@ -250,3 +250,7 @@ export default function AuctionsPage() {
     </div>
   );
 }
+
+
+
+

@@ -235,7 +235,7 @@ export default function PostEditPage() {
               className="input"
               value={form.title}
               onChange={(event) => updateField("title", event.target.value)}
-              placeholder="제목을 입력하세요"
+              placeholder="제목을 입력해 주세요"
             />
             {fieldErrors?.title ? (
               <span className="error">{fieldErrors.title}</span>
@@ -251,7 +251,7 @@ export default function PostEditPage() {
               rows={6}
               value={form.content}
               onChange={(event) => updateField("content", event.target.value)}
-              placeholder="상품 설명을 입력하세요"
+              placeholder="상품 설명을 입력해 주세요"
             />
             {fieldErrors?.content ? (
               <span className="error">{fieldErrors.content}</span>
@@ -289,7 +289,7 @@ export default function PostEditPage() {
           </div>
           <div className="field" style={{ marginTop: 16 }}>
             <label className="label" htmlFor="images">
-              새 이미지(선택)
+              추가 이미지(선택)
             </label>
             <input
               id="images"

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,13 +18,19 @@ type PostItem = {
   categoryName: string;
   thumbnailUrl?: string;
   createDate: string;
+  status: string;
+  statusDisplayName?: string;
   viewCount: number;
+  sellerId?: number;
+  sellerNickname?: string;
+  sellerBadge?: string;
 };
 
 type PostPageData = {
   content?: PostItem[];
   totalPages?: number;
   totalElements?: number;
+  currentStatusFilter?: string;
 };
 
 const formatNumber = (value: number | null | undefined) => {
@@ -38,6 +44,7 @@ export default function PostsPage() {
   const [keywordInput, setKeywordInput] = useState("");
   const [keyword, setKeyword] = useState("");
   const [sort, setSort] = useState("LATEST");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(0);
   const pageSize = 10;
   const [posts, setPosts] = useState<PostItem[]>([]);
@@ -65,6 +72,9 @@ export default function PostsPage() {
         if (sort === "LATEST") {
           params.set("sort", "createDate,desc");
         }
+        if (statusFilter && statusFilter !== "all") {
+          params.set("status", statusFilter);
+        }
         const { rsData, errorMessage: apiError, response } =
           await apiRequest<PostPageData>(`/api/v1/posts?${params.toString()}`);
         if (!isMounted) return;
@@ -91,7 +101,7 @@ export default function PostsPage() {
     return () => {
       isMounted = false;
     };
-  }, [page]);
+  }, [page, sort, statusFilter]);
 
   const applySearch = () => {
     setKeyword(keywordInput.trim());
@@ -125,6 +135,25 @@ export default function PostsPage() {
                 if (event.key === "Enter") applySearch();
               }}
             />
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="statusFilter">
+              상태
+            </label>
+            <select
+              id="statusFilter"
+              className="select"
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value);
+                setPage(0);
+              }}
+            >
+              <option value="all">전체</option>
+              <option value="sale">판매중</option>
+              <option value="reserved">예약중</option>
+              <option value="sold">판매완료</option>
+            </select>
           </div>
           <div className="field">
             <label className="label" htmlFor="sort">
@@ -170,9 +199,18 @@ export default function PostsPage() {
                 <h3 style={{ margin: "12px 0 6px" }}>{post.title}</h3>
                 <div className="muted">
                   {formatNumber(post.price)}원 ·{" "}
-                  {getPostStatusLabel(post.status)} · {post.createDate} · 조회{" "}
-                  {formatNumber(post.viewCount)}
+                  {post.statusDisplayName || getPostStatusLabel(post.status)} ·{" "}
+                  {post.createDate}
                 </div>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  조회 {formatNumber(post.viewCount)} · 판매자{" "}
+                  {post.sellerNickname || "-"}
+                </div>
+                {post.sellerBadge ? (
+                  <div className="tag" style={{ marginTop: 8 }}>
+                    {post.sellerBadge}
+                  </div>
+                ) : null}
               </Link>
             ))}
           </div>
@@ -206,3 +244,4 @@ export default function PostsPage() {
     </div>
   );
 }
+

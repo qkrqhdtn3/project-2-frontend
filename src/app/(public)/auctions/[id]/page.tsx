@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Client } from "@stomp/stompjs";
+import SockJS from "sockjs-client";
 import {
   apiRequest,
   buildApiUrl,
@@ -36,7 +38,6 @@ type AuctionDetail = {
   };
   categoryName?: string;
   winnerId?: number | null;
-  winningBidId?: number | null;
   closedAt?: string | null;
   cancelledBy?: number | null;
   cancellerRole?: "SELLER" | "BUYER" | null;
@@ -57,6 +58,18 @@ type BidPageData = {
   size?: number;
   totalElements?: number;
   totalPages?: number;
+};
+
+type BidResponse = {
+  bidId: number;
+  auctionId: number;
+  bidderId: number;
+  bidderNickname: string;
+  price: number;
+  currentHighestBid?: number | null;
+  bidCount?: number | null;
+  createdAt: string;
+  buyNow?: boolean;
 };
 
 const formatNumber = (value: number | null | undefined) => {
@@ -88,6 +101,7 @@ export default function AuctionDetailPage() {
   const [isBidsLoading, setIsBidsLoading] = useState(false);
   const [bidsError, setBidsError] = useState<string | null>(null);
   const bidPageSize = 10;
+  const bidPageRef = useRef(bidPage);
   const [isReporting, setIsReporting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportSuccess, setReportSuccess] = useState<string | null>(null);
@@ -103,10 +117,10 @@ export default function AuctionDetailPage() {
     return value ? Number(value) : null;
   }, [params]);
   const winningBid = useMemo(() => {
-    const winningBidId = auction?.winningBidId;
-    if (!winningBidId) return null;
-    return bids.find((bid) => bid.bidId === winningBidId) || null;
-  }, [auction?.winningBidId, bids]);
+    const winnerId = auction?.winnerId;
+    if (!winnerId) return null;
+    return bids.find((bid) => bid.bidderId === winnerId) || null;
+  }, [auction?.winnerId, bids]);
 
   const loadAuctionDetail = useCallback(async () => {
     if (!auctionId) {
@@ -118,7 +132,7 @@ export default function AuctionDetailPage() {
     setErrorMessage(null);
     try {
       const { rsData, errorMessage: apiError, response } =
-        await apiRequest<AuctionDetail>(`/api/auctions/${auctionId}`);
+        await apiRequest<AuctionDetail>(`/api/v1/auctions/${auctionId}`);
       if (!response.ok || apiError || !rsData) {
         setAuction(null);
         if (response.status === 404) {
@@ -153,7 +167,7 @@ export default function AuctionDetailPage() {
       params.set("size", String(bidPageSize));
       const { rsData, errorMessage: apiError, response } =
         await apiRequest<BidPageData>(
-          `/api/auctions/${auctionId}/bids?${params.toString()}`
+          `/api/v1/auctions/${auctionId}/bids?${params.toString()}`
         );
       if (!response.ok || apiError || !rsData) {
         setBids([]);
@@ -182,8 +196,15 @@ export default function AuctionDetailPage() {
   }, [loadBids]);
 
   useEffect(() => {
+    bidPageRef.current = bidPage;
+  }, [bidPage]);
+
+  useEffect(() => {
     if (!auction) return;
-    if (auction.currentHighestBid !== null && auction.currentHighestBid !== undefined) {
+    if (
+      auction.currentHighestBid !== null &&
+      auction.currentHighestBid !== undefined
+    ) {
       const current = auction.currentHighestBid;
       const suggested = Math.min(current + 1000, Math.floor(current * 1.5));
       setBidAmount(String(suggested));
@@ -194,11 +215,89 @@ export default function AuctionDetailPage() {
     }
   }, [auction]);
 
+  useEffect(() => {
+    if (!auctionId) return;
+    if (typeof window === "undefined") return;
+    const accessToken = localStorage.getItem("wsAccessToken");
+    if (!accessToken) return;
+
+    const client = new Client({
+      webSocketFactory: () => new SockJS(buildApiUrl("/ws")),
+      connectHeaders: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      reconnectDelay: 5000,
+      onConnect: () => {
+        client.subscribe(`/sub/v1/auctions/${auctionId}`, (message) => {
+          if (!message.body) return;
+          try {
+            const parsed = JSON.parse(message.body) as {
+              resultCode?: string;
+              msg?: string;
+              data?: BidResponse;
+            };
+            const data = parsed.data;
+            if (!data) return;
+            setAuction((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                currentHighestBid:
+                  data.currentHighestBid ?? data.price ?? prev.currentHighestBid,
+                bidCount:
+                  typeof data.bidCount === "number"
+                    ? data.bidCount
+                    : prev.bidCount + 1,
+              };
+            });
+            if (bidPageRef.current === 0) {
+              setBids((prev) => {
+                if (prev.some((bid) => bid.bidId === data.bidId)) {
+                  return prev;
+                }
+                const next = [
+                  {
+                    bidId: data.bidId,
+                    bidderId: data.bidderId,
+                    bidderNickname: data.bidderNickname,
+                    price: data.price,
+                    createdAt: data.createdAt,
+                  },
+                  ...prev,
+                ];
+                return next.slice(0, bidPageSize);
+              });
+              setBidsPageData((prev) => {
+                if (!prev) return prev;
+                const totalElements = (prev.totalElements ?? 0) + 1;
+                const totalPages = Math.max(
+                  1,
+                  Math.ceil(totalElements / bidPageSize)
+                );
+                return { ...prev, totalElements, totalPages };
+              });
+            }
+            if (data.buyNow) {
+              loadAuctionDetail();
+            }
+          } catch {
+            // ignore malformed messages
+          }
+        });
+      },
+    });
+
+    client.activate();
+    return () => {
+      client.deactivate();
+    };
+  }, [auctionId, bidPageSize, loadAuctionDetail]);
+
   const handleBidSubmit = async () => {
     if (!auctionId || isBidSubmitting) return;
     const price = Number(bidAmount);
     if (!Number.isFinite(price) || price <= 0) {
-      setBidError("올바른 입찰가를 입력하세요.");
+      setBidError("올바른 입찰가를 입력해 주세요.");
       return;
     }
     setIsBidSubmitting(true);
@@ -206,13 +305,16 @@ export default function AuctionDetailPage() {
     setBidSuccess(null);
     try {
       const { rsData, errorMessage: apiError, response } =
-        await apiRequest<{ bidId: number }>(`/api/auctions/${auctionId}/bids`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ price }),
-        });
+        await apiRequest<{ bidId: number }>(
+          `/api/v1/auctions/${auctionId}/bids`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ price }),
+          }
+        );
       if (!response.ok || apiError || !rsData) {
         setBidError(apiError || "입찰에 실패했습니다.");
         return;
@@ -258,14 +360,14 @@ export default function AuctionDetailPage() {
     setCancelSuccess(null);
     try {
       const { rsData, errorMessage: apiError, response } =
-        await apiRequest<null>(`/api/auctions/${auctionId}/cancel`, {
+        await apiRequest<null>(`/api/v1/auctions/${auctionId}/cancel`, {
           method: "POST",
         });
       if (!response.ok || apiError || !rsData) {
-      setCancelError(apiError || "취소에 실패했습니다.");
-      return;
-    }
-      setCancelSuccess(rsData.msg || "취소되었습니다.");
+        setCancelError(apiError || "취소에 실패했습니다.");
+        return;
+      }
+      setCancelSuccess(rsData.msg || "취소가 완료되었습니다.");
       await loadAuctionDetail();
     } catch {
       setCancelError("네트워크 오류가 발생했습니다.");
@@ -283,32 +385,13 @@ export default function AuctionDetailPage() {
     if (isCreatingChat) return;
     setIsCreatingChat(true);
     setChatError(null);
-    const storedApiKey =
-      typeof window !== "undefined"
-        ? localStorage.getItem("buyerApiKey")
-        : null;
-    const buyerApiKey = isSeller
-      ? auction.winnerId
-        ? `${auction.winnerId}`
-        : null
-      : storedApiKey ||
-        auth.me.apiKey ||
-        auth.me.username ||
-        auth.me.name ||
-        `${auth.me.id}`;
-    if (!buyerApiKey) {
-      setChatError("낙찰자 정보가 없어 채팅을 시작할 수 없습니다.");
-      setIsCreatingChat(false);
-      return;
-    }
     const query = new URLSearchParams({
       itemId: `${auctionId}`,
       txType: "AUCTION",
-      buyerApiKey,
     });
     try {
       const response = await fetch(
-        buildApiUrl(`/api/chat/room?${query.toString()}`),
+        buildApiUrl(`/api/v1/chat/room?${query.toString()}`),
         {
           method: "POST",
           credentials: "include",
@@ -440,10 +523,12 @@ export default function AuctionDetailPage() {
             {formatNumber(auction.currentHighestBid)}원
           </div>
           {auction.buyNowPrice !== null && auction.buyNowPrice !== undefined ? (
-            <div className="muted">즉시구매 {formatNumber(auction.buyNowPrice)}원</div>
+            <div className="muted">
+              즉시구매 {formatNumber(auction.buyNowPrice)}원
+            </div>
           ) : null}
           <div className="muted">
-            입찰 {auction.bidCount}회 · 시작 {auction.startAt} · 종료{" "}
+            입찰 {auction.bidCount}건 · 시작 {auction.startAt} · 종료{" "}
             {auction.endAt}
           </div>
           {auction.status === "COMPLETED" ? (
@@ -549,12 +634,12 @@ export default function AuctionDetailPage() {
               ) : null}
               {!canDelete && isAuctionOpen ? (
                 <div className="muted" style={{ marginTop: 8 }}>
-                  입찰이 있으면 취소할 수 없습니다.
+                  입찰이 발생하면 취소할 수 없습니다.
                 </div>
               ) : null}
               {!isEditable ? (
                 <div className="muted" style={{ marginTop: 8 }}>
-                  입찰이 없을 때만 수정할 수 있습니다.
+                  입찰 발생 전까지만 수정할 수 있습니다.
                 </div>
               ) : null}
             </Panel>
@@ -647,7 +732,7 @@ export default function AuctionDetailPage() {
             </div>
           ) : null}
           <div style={{ marginTop: 16 }}>
-            판매자: <strong>{auction.seller.nickname}</strong> (평판{" "}
+            판매자 <strong>{auction.seller.nickname}</strong> (평점{" "}
             {auction.seller.reputationScore})
           </div>
           {!isSeller ? (
@@ -674,7 +759,7 @@ export default function AuctionDetailPage() {
           ) : null}
           <Panel style={{ marginTop: 16 }}>
             {auction.status === "OPEN"
-              ? "진행 중인 경매입니다. 새로고침으로 최신 상태를 확인하세요."
+              ? "진행 중인 경매입니다. 실시간으로 최신 상태를 확인하세요."
               : auction.status === "CLOSED"
                 ? "입찰 없이 종료된 경매입니다."
                 : auction.status === "COMPLETED"

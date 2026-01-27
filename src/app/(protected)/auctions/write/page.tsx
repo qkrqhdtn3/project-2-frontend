@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -33,7 +33,7 @@ export default function AuctionWritePage() {
     if (Number.isNaN(startPrice) || Number.isNaN(buyNowPrice)) return null;
     if (!form.buyNowPrice) return null;
     return buyNowPrice < startPrice
-      ? "즉시구매가는 시작가보다 낮을 수 있습니다. 서버 검증을 확인하세요."
+      ? "즉시구매가는 시작가보다 낮을 수 없습니다."
       : null;
   }, [form.buyNowPrice, form.startPrice]);
 
@@ -87,7 +87,7 @@ export default function AuctionWritePage() {
 
     try {
       const { rsData, errorMessage: apiError, response } =
-        await apiRequest<{ auctionId: number }>("/api/auctions", {
+        await apiRequest<{ auctionId: number }>("/api/v1/auctions", {
           method: "POST",
           body,
         });
@@ -164,7 +164,7 @@ export default function AuctionWritePage() {
             </div>
             <div className="field">
               <label className="label" htmlFor="buyNowPrice">
-                즉시구매가(선택)
+                즉시구매가는 시작가보다 낮을 수 없습니다.
               </label>
               <input
                 id="buyNowPrice"
@@ -195,7 +195,7 @@ export default function AuctionWritePage() {
                 onChange={(event) =>
                   updateField("categoryId", event.target.value)
                 }
-                placeholder="예: 2"
+                placeholder=" 2"
               />
               {fieldErrors?.categoryId ? (
                 <span className="error">{fieldErrors.categoryId}</span>
@@ -212,7 +212,7 @@ export default function AuctionWritePage() {
                 onChange={(event) =>
                   updateField("durationHours", event.target.value)
                 }
-                placeholder="예: 24"
+                placeholder=" 24"
               />
               {fieldErrors?.durationHours ? (
                 <span className="error">{fieldErrors.durationHours}</span>
@@ -229,7 +229,7 @@ export default function AuctionWritePage() {
               type="file"
               multiple
               onChange={(event) =>
-                updateField("images", Array.from(event.target.files ?? []))
+                updateField("images", Array.from(event.target.files  []))
               }
             />
           </div>
@@ -257,3 +257,8 @@ export default function AuctionWritePage() {
     </div>
   );
 }
+
+
+
+
+

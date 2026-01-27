@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -23,8 +23,12 @@ type PostDetail = {
   content: string;
   price: number;
   status: string;
+  statusDisplayName?: string;
   categoryName: string;
+  sellerId?: number;
   sellerNickname: string;
+  sellerBadge?: string;
+  sellerScore?: number;
   imageUrls: string[];
   createDate: string;
   viewCount: number;
@@ -60,6 +64,9 @@ export default function PostDetailPage() {
 
   const isSeller = useMemo(() => {
     if (!auth?.me || !post) return false;
+    if (post.sellerId !== undefined && post.sellerId !== null) {
+      return auth.me.id === post.sellerId;
+    }
     return (
       auth.me.username === post.sellerNickname ||
       auth.me.name === post.sellerNickname
@@ -134,24 +141,13 @@ export default function PostDetailPage() {
     if (isCreatingChat) return;
     setIsCreatingChat(true);
     setChatError(null);
-    const storedApiKey =
-      typeof window !== "undefined"
-        ? localStorage.getItem("buyerApiKey")
-        : null;
-    const buyerApiKey =
-      storedApiKey ||
-      auth.me.apiKey ||
-      auth.me.username ||
-      auth.me.name ||
-      `${auth.me.id}`;
     const query = new URLSearchParams({
       itemId: `${postId}`,
       txType: "POST",
-      buyerApiKey,
     });
     try {
       const response = await fetch(
-        buildApiUrl(`/api/chat/room?${query.toString()}`),
+        buildApiUrl(`/api/v1/chat/room?${query.toString()}`),
         {
           method: "POST",
           credentials: "include",
@@ -213,7 +209,15 @@ export default function PostDetailPage() {
         setStatusError(apiError || "상태 변경에 실패했습니다.");
         return;
       }
-      setPost((prev) => (prev ? { ...prev, status: statusValue } : prev));
+      setPost((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: statusValue,
+              statusDisplayName: getPostStatusLabel(statusValue),
+            }
+          : prev
+      );
       setStatusSuccess(rsData.msg || "상태가 변경되었습니다.");
     } catch {
       setStatusError("네트워크 오류가 발생했습니다.");
@@ -277,12 +281,21 @@ export default function PostDetailPage() {
           <div className="tag">{post.categoryName}</div>
           <p style={{ marginTop: 12 }}>{post.content}</p>
           <div className="muted">
-            {post.price.toLocaleString()}원 · {getPostStatusLabel(post.status)} ·{" "}
+            {post.price.toLocaleString()}원 ·{" "}
+            {post.statusDisplayName || getPostStatusLabel(post.status)} ·{" "}
             {post.createDate} · 조회 {post.viewCount.toLocaleString()}
           </div>
           <div style={{ marginTop: 16 }}>
-            판매자: <strong>{post.sellerNickname}</strong>
+            판매자 <strong>{post.sellerNickname}</strong>
           </div>
+          <div className="muted" style={{ marginTop: 6 }}>
+            신용 점수 {post.sellerScore ?? "-"}
+          </div>
+          {post.sellerBadge ? (
+            <div className="tag" style={{ marginTop: 8 }}>
+              {post.sellerBadge}
+            </div>
+          ) : null}
           <div className="actions" style={{ marginTop: 20 }}>
             {!isSeller ? (
               <div>
@@ -329,9 +342,9 @@ export default function PostDetailPage() {
                   onChange={(event) => setStatusValue(event.target.value)}
                   disabled={isStatusUpdating}
                 >
-                  <option value="SALE">SALE</option>
-                  <option value="RESERVED">RESERVED</option>
-                  <option value="SOLD">SOLD</option>
+                  <option value="SALE">판매중</option>
+                  <option value="RESERVED">예약중</option>
+                  <option value="SOLD">판매완료</option>
                 </select>
               </div>
               {statusError ? (
@@ -358,3 +371,10 @@ export default function PostDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+

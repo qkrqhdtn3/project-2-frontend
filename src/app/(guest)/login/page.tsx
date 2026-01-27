@@ -34,8 +34,9 @@ export default function LoginPage() {
       const json = await safeJson<{
         resultCode?: string;
         msg?: string;
-        data?: { apiKey?: string };
+        data?: { apiKey?: string; accessToken?: string };
         apiKey?: string;
+        accessToken?: string;
       }>(response);
       if (!json) {
         setErrorMessage("응답 파싱에 실패했습니다.");
@@ -57,6 +58,12 @@ export default function LoginPage() {
         localStorage.setItem("buyerApiKey", apiKey);
       } else {
         localStorage.removeItem("buyerApiKey");
+      }
+      const accessToken = json.data?.accessToken || json.accessToken;
+      if (accessToken) {
+        localStorage.setItem("wsAccessToken", accessToken);
+      } else {
+        localStorage.removeItem("wsAccessToken");
       }
       router.replace("/");
     } catch {

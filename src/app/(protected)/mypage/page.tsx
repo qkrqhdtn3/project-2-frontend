@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, buildApiUrl, safeJson } from "@/lib/api";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -16,7 +17,73 @@ type MemberMe = {
   modifyDate: string;
 };
 
+type PostListItem = {
+  id: number;
+  title: string;
+  price: number;
+  categoryName: string;
+  thumbnailUrl?: string;
+  createDate: string;
+  status: string;
+  statusDisplayName?: string;
+  viewCount: number;
+  sellerId: number;
+  sellerNickname: string;
+  sellerBadge?: string;
+};
+
+type PostPageResponse = {
+  content?: PostListItem[];
+  page?: number;
+  size?: number;
+  totalElements?: number;
+  totalPages?: number;
+  currentStatusFilter?: string;
+};
+
+type AuctionListItem = {
+  auctionId: number;
+  name: string;
+  thumbnailUrl?: string;
+  startPrice: number;
+  currentHighestBid: number | null;
+  buyNowPrice?: number;
+  status: string;
+  endAt: string;
+  bidCount: number;
+  seller: {
+    id: number;
+    nickname: string;
+    reputationScore: number;
+  };
+  categoryName?: string;
+};
+
+type AuctionPageResponse = {
+  content?: AuctionListItem[];
+  page?: number;
+  size?: number;
+  totalElements?: number;
+  totalPages?: number;
+};
+
+type ReviewDto = {
+  id: number;
+  createDate: string;
+  modifyDate: string;
+  score: number;
+  comment?: string;
+  memberId: number;
+  reviewerId: number;
+};
+
+const formatNumber = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return "-";
+  return value.toLocaleString();
+};
+
 export default function MyPage() {
+  const router = useRouter();
   const [me, setMe] = useState<MemberMe | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -30,6 +97,27 @@ export default function MyPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [isPasswordLoading, setIsPasswordLoading] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+
+  const [postStatusFilter, setPostStatusFilter] = useState("all");
+  const [postPage, setPostPage] = useState(0);
+  const [posts, setPosts] = useState<PostListItem[]>([]);
+  const [postsPage, setPostsPage] = useState<PostPageResponse | null>(null);
+  const [postsError, setPostsError] = useState<string | null>(null);
+  const [isPostsLoading, setIsPostsLoading] = useState(false);
+
+  const [auctionStatusFilter, setAuctionStatusFilter] = useState("OPEN");
+  const [auctionPage, setAuctionPage] = useState(0);
+  const [auctions, setAuctions] = useState<AuctionListItem[]>([]);
+  const [auctionsPage, setAuctionsPage] =
+    useState<AuctionPageResponse | null>(null);
+  const [auctionsError, setAuctionsError] = useState<string | null>(null);
+  const [isAuctionsLoading, setIsAuctionsLoading] = useState(false);
+
+  const [reviews, setReviews] = useState<ReviewDto[]>([]);
+  const [reviewsError, setReviewsError] = useState<string | null>(null);
+  const [isReviewsLoading, setIsReviewsLoading] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -72,6 +160,135 @@ export default function MyPage() {
     if (me) {
       setNickname(me.name);
     }
+  }, [me]);
+
+  useEffect(() => {
+    if (!me) return;
+    let isMounted = true;
+    const fetchPosts = async () => {
+      setIsPostsLoading(true);
+      setPostsError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set("page", String(postPage));
+        params.set("size", "10");
+        if (postStatusFilter && postStatusFilter !== "all") {
+          params.set("status", postStatusFilter);
+        }
+        const { rsData, errorMessage: apiError, response } =
+          await apiRequest<PostPageResponse>(
+            `/api/v1/members/me/posts?${params.toString()}`
+          );
+        if (!isMounted) return;
+        if (!response.ok || apiError || !rsData) {
+          setPosts([]);
+          setPostsPage(null);
+          setPostsError(apiError || "내 거래를 불러오지 못했습니다.");
+          return;
+        }
+        setPosts(rsData.data?.content ?? []);
+        setPostsPage(rsData.data ?? null);
+      } catch {
+        if (isMounted) {
+          setPosts([]);
+          setPostsPage(null);
+          setPostsError("네트워크 오류가 발생했습니다.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsPostsLoading(false);
+        }
+      }
+    };
+    fetchPosts();
+    return () => {
+      isMounted = false;
+    };
+  }, [me, postPage, postStatusFilter]);
+
+  useEffect(() => {
+    if (!me) return;
+    let isMounted = true;
+    const fetchAuctions = async () => {
+      setIsAuctionsLoading(true);
+      setAuctionsError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set("page", String(auctionPage));
+        params.set("size", "10");
+        if (auctionStatusFilter) {
+          params.set("status", auctionStatusFilter);
+        }
+        const { rsData, errorMessage: apiError, response } =
+          await apiRequest<AuctionPageResponse>(
+            `/api/v1/members/me/auctions?${params.toString()}`
+          );
+        if (!isMounted) return;
+        if (!response.ok || apiError || !rsData) {
+          setAuctions([]);
+          setAuctionsPage(null);
+          setAuctionsError(apiError || "내 경매를 불러오지 못했습니다.");
+          return;
+        }
+        setAuctions(rsData.data?.content ?? []);
+        setAuctionsPage(rsData.data ?? null);
+      } catch {
+        if (isMounted) {
+          setAuctions([]);
+          setAuctionsPage(null);
+          setAuctionsError("네트워크 오류가 발생했습니다.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsAuctionsLoading(false);
+        }
+      }
+    };
+    fetchAuctions();
+    return () => {
+      isMounted = false;
+    };
+  }, [me, auctionPage, auctionStatusFilter]);
+
+  useEffect(() => {
+    if (!me) return;
+    let isMounted = true;
+    const fetchReviews = async () => {
+      setIsReviewsLoading(true);
+      setReviewsError(null);
+      try {
+        const response = await fetch(
+          buildApiUrl(`/api/v1/members/${me.id}/review`),
+          {
+            method: "GET",
+            credentials: "include",
+          }
+        );
+        if (!response.ok) {
+          setReviewsError("리뷰를 불러오지 못했습니다.");
+          return;
+        }
+        const json = await safeJson<ReviewDto[]>(response);
+        if (!json) {
+          setReviewsError("응답 파싱에 실패했습니다.");
+          return;
+        }
+        if (!isMounted) return;
+        setReviews(json);
+      } catch {
+        if (isMounted) {
+          setReviewsError("네트워크 오류가 발생했습니다.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsReviewsLoading(false);
+        }
+      }
+    };
+    fetchReviews();
+    return () => {
+      isMounted = false;
+    };
   }, [me]);
 
   const handleNicknameSubmit = async (event: React.FormEvent) => {
@@ -157,6 +374,38 @@ export default function MyPage() {
     }
   };
 
+  const handleWithdraw = async () => {
+    if (isWithdrawing) return;
+    if (!confirm("정말 탈퇴하시겠습니까?")) return;
+    setIsWithdrawing(true);
+    setWithdrawError(null);
+    try {
+      const { rsData, errorMessage: apiError, response } =
+        await apiRequest<null>("/api/v1/members/me/withdraw", {
+          method: "PATCH",
+        });
+      if (!response.ok || apiError || !rsData) {
+        setWithdrawError(apiError || "탈퇴 처리에 실패했습니다.");
+        return;
+      }
+      router.replace("/login");
+    } catch {
+      setWithdrawError("네트워크 오류가 발생했습니다.");
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+
+  const postPageSummary = useMemo(() => {
+    if (!postsPage) return "";
+    return `${(postsPage.page ?? 0) + 1} / ${postsPage.totalPages ?? 1}`;
+  }, [postsPage]);
+
+  const auctionPageSummary = useMemo(() => {
+    if (!auctionsPage) return "";
+    return `${(auctionsPage.page ?? 0) + 1} / ${auctionsPage.totalPages ?? 1}`;
+  }, [auctionsPage]);
+
   if (isLoading) {
     return (
       <Card>
@@ -208,7 +457,7 @@ export default function MyPage() {
                   setNicknameError(null);
                   setNicknameSuccess(null);
                 }}
-                placeholder="nickname"
+                placeholder="닉네임"
                 autoComplete="nickname"
               />
             </div>
@@ -307,6 +556,208 @@ export default function MyPage() {
               {isPasswordLoading ? "수정 중..." : "비밀번호 변경"}
             </button>
           </form>
+        </Card>
+      </div>
+
+      <div className="grid-2" style={{ marginTop: 24 }}>
+        <Card>
+          <h2 style={{ marginTop: 0 }}>내 거래</h2>
+          <div className="field-row" style={{ marginTop: 12 }}>
+            <div className="field">
+              <label className="label" htmlFor="postStatus">
+                상태
+              </label>
+              <select
+                id="postStatus"
+                className="select"
+                value={postStatusFilter}
+                onChange={(event) => {
+                  setPostStatusFilter(event.target.value);
+                  setPostPage(0);
+                }}
+              >
+                <option value="all">전체</option>
+                <option value="sale">판매중</option>
+                <option value="reserved">예약중</option>
+                <option value="sold">판매완료</option>
+              </select>
+            </div>
+          </div>
+          {isPostsLoading ? (
+            <SkeletonLine width="70%" />
+          ) : postsError ? (
+            <ErrorMessage message={postsError} />
+          ) : posts.length === 0 ? (
+            <EmptyState message="표시할 거래가 없습니다." />
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {posts.map((post) => (
+                <div key={post.id} className="card">
+                  <div className="muted">
+                    {post.statusDisplayName || post.status}
+                  </div>
+                  <div style={{ marginTop: 6 }}>{post.title}</div>
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    {formatNumber(post.price)}원 · {post.createDate}
+                  </div>
+                  {post.sellerBadge ? (
+                    <div className="tag" style={{ marginTop: 8 }}>
+                      {post.sellerBadge}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          {postsPage ? (
+            <div className="actions" style={{ marginTop: 12 }}>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setPostPage((prev) => Math.max(prev - 1, 0))}
+                disabled={(postsPage.page ?? 0) <= 0}
+              >
+                이전
+              </button>
+              <span className="muted">{postPageSummary}</span>
+              <button
+                className="btn btn-ghost"
+                onClick={() =>
+                  setPostPage((prev) =>
+                    postsPage.totalPages
+                      ? Math.min(prev + 1, postsPage.totalPages - 1)
+                      : prev + 1
+                  )
+                }
+                disabled={
+                  postsPage.totalPages !== undefined &&
+                  postsPage.totalPages > 0 &&
+                  (postsPage.page ?? 0) >= postsPage.totalPages - 1
+                }
+              >
+                다음
+              </button>
+            </div>
+          ) : null}
+        </Card>
+
+        <Card>
+          <h2 style={{ marginTop: 0 }}>내 경매</h2>
+          <div className="field-row" style={{ marginTop: 12 }}>
+            <div className="field">
+              <label className="label" htmlFor="auctionStatus">
+                상태
+              </label>
+              <select
+                id="auctionStatus"
+                className="select"
+                value={auctionStatusFilter}
+                onChange={(event) => {
+                  setAuctionStatusFilter(event.target.value);
+                  setAuctionPage(0);
+                }}
+              >
+                <option value="OPEN">진행 중</option>
+                <option value="CLOSED">입찰 없음</option>
+                <option value="COMPLETED">낙찰 완료</option>
+                <option value="CANCELLED">취소됨</option>
+              </select>
+            </div>
+          </div>
+          {isAuctionsLoading ? (
+            <SkeletonLine width="70%" />
+          ) : auctionsError ? (
+            <ErrorMessage message={auctionsError} />
+          ) : auctions.length === 0 ? (
+            <EmptyState message="표시할 경매가 없습니다." />
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {auctions.map((auction) => (
+                <div key={auction.auctionId} className="card">
+                  <div className="muted">{auction.status}</div>
+                  <div style={{ marginTop: 6 }}>{auction.name}</div>
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    현재가 {formatNumber(auction.currentHighestBid)}원 · 입찰{" "}
+                    {auction.bidCount}건
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {auctionsPage ? (
+            <div className="actions" style={{ marginTop: 12 }}>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setAuctionPage((prev) => Math.max(prev - 1, 0))}
+                disabled={(auctionsPage.page ?? 0) <= 0}
+              >
+                이전
+              </button>
+              <span className="muted">{auctionPageSummary}</span>
+              <button
+                className="btn btn-ghost"
+                onClick={() =>
+                  setAuctionPage((prev) =>
+                    auctionsPage.totalPages
+                      ? Math.min(prev + 1, auctionsPage.totalPages - 1)
+                      : prev + 1
+                  )
+                }
+                disabled={
+                  auctionsPage.totalPages !== undefined &&
+                  auctionsPage.totalPages > 0 &&
+                  (auctionsPage.page ?? 0) >= auctionsPage.totalPages - 1
+                }
+              >
+                다음
+              </button>
+            </div>
+          ) : null}
+        </Card>
+      </div>
+
+      <div className="grid-2" style={{ marginTop: 24 }}>
+        <Card>
+          <h2 style={{ marginTop: 0 }}>내 리뷰</h2>
+          {isReviewsLoading ? (
+            <SkeletonLine width="70%" />
+          ) : reviewsError ? (
+            <ErrorMessage message={reviewsError} />
+          ) : reviews.length === 0 ? (
+            <EmptyState message="아직 받은 리뷰가 없습니다." />
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {reviews.map((review) => (
+                <div key={review.id} className="card">
+                  <div className="muted">평점 {review.score}</div>
+                  <div style={{ marginTop: 6 }}>
+                    {review.comment || "내용 없음"}
+                  </div>
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    {review.createDate}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <h2 style={{ marginTop: 0 }}>회원 탈퇴</h2>
+          <p className="muted">
+            탈퇴 시 계정 복구가 불가능합니다. 신중히 진행해 주세요.
+          </p>
+          {withdrawError ? (
+            <ErrorMessage message={withdrawError} style={{ marginTop: 12 }} />
+          ) : null}
+          <button
+            className="btn btn-danger"
+            type="button"
+            onClick={handleWithdraw}
+            disabled={isWithdrawing}
+            style={{ marginTop: 16 }}
+          >
+            {isWithdrawing ? "처리 중..." : "탈퇴하기"}
+          </button>
         </Card>
       </div>
     </div>

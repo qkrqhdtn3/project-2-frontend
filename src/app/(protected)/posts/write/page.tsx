@@ -130,7 +130,7 @@ export default function PostWritePage() {
               className="input"
               value={form.title}
               onChange={(event) => updateField("title", event.target.value)}
-              placeholder="제목을 입력하세요"
+              placeholder="제목을 입력해 주세요"
             />
             {fieldErrors?.title ? (
               <span className="error">{fieldErrors.title}</span>
@@ -146,7 +146,7 @@ export default function PostWritePage() {
               rows={6}
               value={form.content}
               onChange={(event) => updateField("content", event.target.value)}
-              placeholder="상품 설명을 입력하세요"
+              placeholder="상품 설명을 입력해 주세요"
             />
             {fieldErrors?.content ? (
               <span className="error">{fieldErrors.content}</span>
